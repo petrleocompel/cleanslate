@@ -6,7 +6,7 @@
 - deployment is bad - build next.js app is prebuild originally with URLs
 - next.js app splitted to 2 parts, server (auth) + client js bundle
 - 3rd app - API / GraphQL needs 2 folders from source code to make it work (can be still fixed by doing another image with prebuild folders)
-
+- 3 services under the hood with 3 urls needed to be hittable via your proxy - **example with traefik** `docker-compose-standalone.yml`
 
 --------- 
 # Clean Slate

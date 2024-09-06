@@ -1,0 +1,122 @@
+services:
+  database:
+    image: postgres:15
+    restart: unless-stopped
+    #container_name: database
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./data/database:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+  graphql-server:
+    image: hasura/graphql-engine:latest.cli-migrations-v3
+    restart: unless-stopped
+    #container_name: graphql-server
+    environment:
+      HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_GRAPHQL_ADMIN_SECRET}
+      HASURA_GRAPHQL_CORS_DOMAIN: https://${NEXT_PUBLIC_HASURA_DOMAIN}
+      HASURA_GRAPHQL_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@database:5432/postgres
+      HASURA_GRAPHQL_DEV_MODE: true
+      HASURA_GRAPHQL_ENABLE_CONSOLE: true
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+      HASURA_GRAPHQL_JWT_SECRET: ${HASURA_GRAPHQL_JWT_SECRET}
+      HASURA_GRAPHQL_METADATA_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@database:5432/postgres
+      PG_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/database
+    volumes:
+      # TODO - custom image with those 2 folders or download zip and get those 2 folders from it
+      - ./migrations:/hasura-migrations
+      - ./metadata:/hasura-metadata
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.cleanslate-ql.rule=Host(`${NEXT_PUBLIC_HASURA_DOMAIN}`) && (PathPrefix(`/v2`) || PathPrefix(`/v1`) || PathPrefix(`/console`) || PathPrefix(`/healthz`))"
+      - traefik.http.routers.cleanslate-ql.entrypoints=https
+      - traefik.http.routers.cleanslate-ql.priority=150
+      - traefik.http.routers.cleanslate-ql.tls=true
+      - traefik.http.routers.cleanslate-ql.service=cleanslate-ql
+      - traefik.http.routers.cleanslate-ql.tls.certresolver=default
+      - traefik.http.services.cleanslate-ql.loadbalancer.server.port=8080
+      - "traefik.docker.network=http_network"
+    depends_on:
+      database:
+        condition: service_healthy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - app
+      - http_network
+
+  authentication-server:
+    image: petrleocompel/cleanslate-server
+    restart: unless-stopped
+    #container_name: authentication-server
+    environment:
+      HASURA_GRAPHQL_ADMIN_SECRET: ${HASURA_GRAPHQL_ADMIN_SECRET}
+      HASURA_PORT: ${HASURA_PORT:-8080}
+      JWT_SIGNING_SECRET: ${JWT_SIGNING_SECRET}
+      NEXT_PUBLIC_HASURA_DOMAIN: ${NEXT_PUBLIC_HASURA_DOMAIN}
+      NEXT_PUBLIC_USE_FIREBASE: ${NEXT_PUBLIC_USE_FIREBASE}
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.cleanslate-auth.rule=Host(`${NEXT_PUBLIC_HASURA_DOMAIN}`) && PathPrefix(`/auth`)"
+      - traefik.http.routers.cleanslate-auth.entrypoints=https
+      - traefik.http.routers.cleanslate-auth.priority=100
+      - traefik.http.routers.cleanslate-auth.tls=true
+      - traefik.http.routers.cleanslate-auth.tls.certresolver=default
+      - traefik.http.routers.cleanslate-auth.service=cleanslate-auth
+      - traefik.http.services.cleanslate-auth.loadbalancer.server.port=3001
+      - "traefik.docker.network=http_network"
+    depends_on:
+      - database
+      - graphql-server
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - app
+      - http_network
+
+  client:
+    image: petrleocompel/cleanslate-client
+    restart: unless-stopped
+    #container_name: client
+    environment:
+        #- NEXT_PUBLIC_FIREBASE_CONFIG=${NEXT_PUBLIC_FIREBASE_CONFIG}
+        - NEXT_PUBLIC_HASURA_DOMAIN=${NEXT_PUBLIC_HASURA_DOMAIN}
+        - NEXT_PUBLIC_LEGAL_LINK=${NEXT_PUBLIC_LEGAL_LINK}
+        #- NEXT_PUBLIC_LOGIN_WITH_APPLE=${NEXT_PUBLIC_LOGIN_WITH_APPLE}
+        #- NEXT_PUBLIC_LOGIN_WITH_FACEBOOK=${NEXT_PUBLIC_LOGIN_WITH_FACEBOOK}
+        #- NEXT_PUBLIC_LOGIN_WITH_GITHUB=${NEXT_PUBLIC_LOGIN_WITH_GITHUB}
+        #- NEXT_PUBLIC_LOGIN_WITH_GOOGLE=${NEXT_PUBLIC_LOGIN_WITH_GOOGLE}
+        #- NEXT_PUBLIC_REACT_SENTRY_DSN=${NEXT_PUBLIC_REACT_SENTRY_DSN}
+        #- NEXT_PUBLIC_USE_FIREBASE=${NEXT_PUBLIC_USE_FIREBASE}
+        #- NEXT_PUBLIC_VERSION=${NEXT_PUBLIC_VERSION}
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.cleanslate.rule=Host(`${NEXT_PUBLIC_HASURA_DOMAIN}`)"
+      - traefik.http.routers.cleanslate.entrypoints=https
+      - traefik.http.routers.cleanslate.tls=true
+      - traefik.http.routers.cleanslate.tls.certresolver=default
+      - traefik.http.routers.cleanslate.service=cleanslate
+      - traefik.http.services.cleanslate.loadbalancer.server.port=3000
+      - "traefik.docker.network=http_network"
+    depends_on:
+      - database
+      - graphql-server
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - app
+      - http_network
+    
+
+networks:
+  app:
+  http_network:
+    external: true
+
